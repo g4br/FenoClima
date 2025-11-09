@@ -18,4 +18,5 @@ Os códigos apresentados aqui estão em metodologia GO HORSE, com caráter de pl
 - resultado-dados-test.csv — Resultado do modelo treinado para os dados no conjunto teste [ não conhecidos pela RNA ]
 
 ## [ Extra ] Code GEE
-https://code.earthengine.google.com/c078670b4d00f5614b5bf91921ca15eb
+code: https://code.earthengine.google.com/c078670b4d00f5614b5bf91921ca15eb
+app: https://ee-gabrielluanrodrigues.projects.earthengine.app/view/ndvi-mapbiomas-nuvens-mask
