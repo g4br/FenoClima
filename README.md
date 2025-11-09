@@ -13,5 +13,6 @@ Os códigos apresentados aqui estão em metodologia GO HORSE, com caráter de pl
 - timesat.py — Detecção das métricas fenológicas a partir da série temporal de NDVI
 - clima_timesat.py — Calculo dos parâmetros climáticos de acordo com o estádio fenológico, datas e municipio
 - FenoClima.py — Orquestra o fluxo de features e treina a rede de DL híbrida. 
-- diagram.png — diagrama do fluxo da RNA. 
-- terminal-print.txt — exemplo de saída em console. 
+- diagram.png — Diagrama do fluxo da RNA. 
+- terminal-print.txt — Saída do console, ao final do treino.
+- resultado-dados-test.csv — Resultado do modelo treinado para os dados no conjunto teste [ não conhecidos pela RNA ]
