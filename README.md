@@ -10,6 +10,6 @@
 - big_query-gee.py — coleta/consulta no GEE/BigQuery. 
 - timesat.py — funções de apoio para a etapa fenológica. 
 - clima_timesat.py — métricas fenológicas e suavização estilo TIMESAT. 
-- FenoClima.py — orquestra o fluxo e treina a rede de DL híbrida. 
+- FenoClima.py — orquestra o fluxo de features e treina a rede de DL híbrida. 
 - diagram.png — diagrama do fluxo da RNA. 
 - terminal-print.txt — exemplo de saída em console. 
