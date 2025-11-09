@@ -16,3 +16,6 @@ Os códigos apresentados aqui estão em metodologia GO HORSE, com caráter de pl
 - diagram.png — Diagrama do fluxo da RNA. 
 - terminal-print.txt — Saída do console, ao final do treino.
 - resultado-dados-test.csv — Resultado do modelo treinado para os dados no conjunto teste [ não conhecidos pela RNA ]
+
+## [ Extra ] Code GEE
+https://ee-gabrielluanrodrigues.projects.earthengine.app/view/ndvi-soja-nuvens-mask
