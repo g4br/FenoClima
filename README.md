@@ -1,7 +1,5 @@
 # FenoClima
 
-The code presented here follows a GO HORSE methodology — it is a playground / work-in-progress and does not yet have operational maturity.
-
 ## Municipal-level phenology and climate pipeline:
 - Time-series collection from Google Earth Engine / BigQuery,
 - Phenological metric extraction (TIMESAT adaptation),
