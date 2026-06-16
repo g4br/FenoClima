@@ -7,12 +7,12 @@ ASSET_TPL = {
     'soil': 'projects/ee-gabrielluanrodrigues/assets/{year}/soil',
     'shp' : 'projects/ee-gabrielluanrodrigues/assets/{year}/shp'
 }
-PROP_MUNI_ID     = 'D1C'   # ajuste se mudar
+PROP_MUNI_ID     = 'D1C'   # adjust if field name changes
 PROP_FILTRA_SOJA = 'V'     # > 0
-YEAR_START, YEAR_END = 2025,2025  # Período completo
-CHUNK_SIZE = 1  # Processar 1 município por vez
+YEAR_START, YEAR_END = 2025, 2025  # full processing period
+CHUNK_SIZE = 1  # process 1 municipality at a time
 SELECTORS = [
-    PROP_MUNI_ID,                # id do município que vem do seu shapefile
+    PROP_MUNI_ID,                # municipality id from the shapefile
     'date',
     'ndvi_mean','ndvi_stdDev','ndvi_p5','ndvi_p50','ndvi_p95',
     'area_total_soja_sum','area_nuvem_soja_sum','pct_cloud_soy'
@@ -21,13 +21,13 @@ SELECTORS = [
 IC = ee.ImageCollection('MODIS/061/MOD09Q1')
 pixel_area = ee.Image.pixelArea()
 
-# ================== FUNÇÕES ==================
+# ================== FUNCTIONS ==================
 def add_cloud_info_mod09q1(img):
     qa = img.select('State')
     cloud_state  = qa.rightShift(10).bitwiseAnd(3).neq(0)  # bits 10-11
     cloud_shadow = qa.bitwiseAnd(1 << 2).neq(0)            # bit 2
     cirrus       = qa.rightShift(8).bitwiseAnd(3).gt(0)    # bits 8-9
-    cloud = cloud_state.Or(cloud_shadow).Or(cirrus).rename('cloud')  # 1 nuvem
+    cloud = cloud_state.Or(cloud_shadow).Or(cirrus).rename('cloud')  # 1 = cloud
     clear = cloud.Not().rename('clear')
     return img.addBands([cloud, clear])
 
@@ -49,7 +49,7 @@ def chunk_fc(fc, size):
 def path_for(year, kind):
     return ASSET_TPL[kind].format(year=year)
 
-# ================== LOOP ANUAL ==================
+# ================== ANNUAL LOOP ==================
 for year in range(YEAR_START, YEAR_END + 1):
     y0 = ee.Date.fromYMD(year, 1, 1)
     y1 = y0.advance(1, 'year')
@@ -59,38 +59,38 @@ for year in range(YEAR_START, YEAR_END + 1):
                  .map(add_ndvi))
 
     if ic_year.size().getInfo() == 0:
-        print(f'{year}: sem imagens')
+        print(f'{year}: no images found')
         continue
 
-    # Imagem de referência para projeção/escala (250 m)
+    # reference image for projection/scale (250 m)
     img_ref = ee.Image(ic_year.first())
     proj = img_ref.projection()
 
-    # ===== assets daquele ano =====
+    # ===== assets for this year =====
     mask_path = path_for(year, 'mask')
     soil_path = path_for(year, 'soil')
     shp_path  = path_for(year, 'shp')
 
-    # Carrega e alinha
+    # load and reproject
     mask_soja = ee.Image(mask_path) \
         .reproject(crs=proj, scale=proj.nominalScale()).gt(0)
 
     solo = ee.Image(soil_path).select('b1') \
         .reproject(crs=proj, scale=proj.nominalScale())
 
-    # Municípios com soja > 0 (do ano)
+    # municipalities with soy > 0 for this year
     munis_all = ee.FeatureCollection(shp_path).filter(ee.Filter.gt(PROP_FILTRA_SOJA, 0))
     if munis_all.size().getInfo() == 0:
-        print(f'{year}: shp vazio (sem municípios com V>0?)')
+        print(f'{year}: empty shapefile (no municipalities with V>0?)')
         continue
 
     muni_chunks = chunk_fc(munis_all, CHUNK_SIZE)
 
     for idx, muni_fc in enumerate(muni_chunks, start=1):
-        # Obter ID do município atual (chunk size 1)
+        # get ID of current municipality (chunk size 1)
         muni_feature = ee.Feature(muni_fc.first())
         muni_id = muni_feature.get(PROP_MUNI_ID).getInfo()
-        print(f"\nProcessando município {muni_id} ({idx}/{len(muni_chunks)}) - Ano {year}")
+        print(f"\nProcessing municipality {muni_id} ({idx}/{len(muni_chunks)}) - Year {year}")
 
         def per_image(img):
             date_str = ee.Date(img.get('system:time_start')).format('YYYY-MM-dd')
@@ -100,7 +100,7 @@ for year in range(YEAR_START, YEAR_END + 1):
             area_cloud = pixel_area.updateMask(img.select('cloud').And(mask_soja)).rename('area_nuvem_soja')
             stack = ndvi_soja.addBands([area_total, area_cloud])
 
-            # ---- Redutores estatísticos ----
+            # ---- statistical reducers ----
             red_mean = ee.Reducer.mean().setOutputs(['ndvi_mean'])
             red_std  = ee.Reducer.stdDev().setOutputs(['ndvi_stdDev'])
             red_pct  = ee.Reducer.percentile([5,50,95]).setOutputs(['ndvi_p5','ndvi_p50','ndvi_p95'])
@@ -113,15 +113,15 @@ for year in range(YEAR_START, YEAR_END + 1):
                            .combine(reducer_sum_total, sharedInputs=False)
                            .combine(reducer_sum_cloud, sharedInputs=False))
 
-            # Aplicar redução apenas no município atual
+            # apply reduction only to the current municipality
             reduced = stack.reduceRegions(
                 collection=muni_fc,
                 reducer=reducer_all,
                 scale=proj.nominalScale(),
-                tileScale=4  # Aumentado para melhor performance
+                tileScale=4  # increased for better performance
             )
 
-            # Calcular porcentagem de nuvem
+            # compute cloud percentage
             def add_cloud_pct(f):
                 area_total = ee.Number(f.get('area_total_soja_sum')).max(1)
                 cloud_pct = ee.Number(f.get('area_nuvem_soja_sum')).divide(area_total).multiply(100)
@@ -129,15 +129,15 @@ for year in range(YEAR_START, YEAR_END + 1):
                     'date': date_str,
                     'pct_cloud_soy': cloud_pct
                 })
-                
+
             return reduced.map(add_cloud_pct)
 
-        # Processar todas as imagens do ano para este município
+        # process all images of the year for this municipality
         fc_year_muni = ee.FeatureCollection(ic_year.map(per_image)).flatten()
 
-        # Configurar exportação
+        # configure export
         desc = f'modis09q1_ndvi_cloud_y{year}_muni{muni_id}'
-        print(f'Exportando: {desc}')
+        print(f'Exporting: {desc}')
 
         task = ee.batch.Export.table.toDrive(
             collection=fc_year_muni,
@@ -148,12 +148,12 @@ for year in range(YEAR_START, YEAR_END + 1):
             selectors=SELECTORS
         )
         task.start()
-        print(f"Task iniciada para município {muni_id} ({task.id})")
+        print(f"Task started for municipality {muni_id} ({task.id})")
 
-# Monitorar tasks (opcional)
-print("\nMonitoramento de tasks:")
+# Monitor tasks (optional)
+print("\nTask monitoring:")
 for t in ee.batch.Task.list():
     st = t.status()
     print(f"{st['description']} ({st['id']}): {st['state']}")
     if st['state'] == 'FAILED':
-        print(f"    ERRO: {st.get('error_message', 'Sem detalhes')}")
+        print(f"    ERROR: {st.get('error_message', 'No details')}")
