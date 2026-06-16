@@ -1,420 +1,420 @@
-# FenoClima — Documentação Técnica Completa
+# FenoClima — Full Technical Documentation
 
-> Pipeline de predição de produtividade da soja em nível municipal, integrando fenologia derivada de satélite com indicadores climáticos e uma rede neural híbrida.
-
----
-
-## Sumário
-
-1. [Visão Geral do Projeto](#1-visão-geral-do-projeto)
-2. [Estrutura do Repositório](#2-estrutura-do-repositório)
-3. [Pipeline de Processamento](#3-pipeline-de-processamento)
-4. [Módulo 1 — Extração de NDVI (`big_query-gee.py`)](#4-módulo-1--extração-de-ndvi-big_query-geepy)
-5. [Módulo 2 — Métricas Fenológicas (`timesat.py`)](#5-módulo-2--métricas-fenológicas-timesatpy)
-6. [Módulo 3 — Indicadores Climáticos (`clima_timesat.py`)](#6-módulo-3--indicadores-climáticos-clima_timesatpy)
-7. [Módulo 4 — Rede Neural Híbrida (`FenoClima.py`)](#7-módulo-4--rede-neural-híbrida-fenoclimapymodulo-4)
-8. [Diagrama da Metodologia](#8-diagrama-da-metodologia)
-9. [Formatos de Entrada e Saída](#9-formatos-de-entrada-e-saída)
-10. [Parâmetros e Configurações](#10-parâmetros-e-configurações)
-11. [Limitações Conhecidas](#11-limitações-conhecidas)
+> Pipeline for predicting soybean productivity at the municipal level, integrating satellite-derived phenology with climate indicators and a hybrid neural network.
 
 ---
 
-## 1. Visão Geral do Projeto
+## Table of Contents
 
-O **FenoClima** é um sistema de previsão de produtividade agrícola municipal que combina três fontes de dados:
+1. [Project Overview](#1-project-overview)
+2. [Repository Structure](#2-repository-structure)
+3. [Processing Pipeline](#3-processing-pipeline)
+4. [Module 1 — NDVI Extraction (`big_query-gee.py`)](#4-module-1--ndvi-extraction-big_query-geepy)
+5. [Module 2 — Phenological Metrics (`timesat.py`)](#5-module-2--phenological-metrics-timesatpy)
+6. [Module 3 — Climate Indicators (`clima_timesat.py`)](#6-module-3--climate-indicators-clima_timesatpy)
+7. [Module 4 — Hybrid Neural Network (`FenoClima.py`)](#7-module-4--hybrid-neural-network-fenoclimapymodule-4)
+8. [Methodology Diagram](#8-methodology-diagram)
+9. [Input and Output Formats](#9-input-and-output-formats)
+10. [Parameters and Configuration](#10-parameters-and-configuration)
+11. [Known Limitations](#11-known-limitations)
 
-| Fonte | Tipo | Representação |
-|-------|------|---------------|
-| Satélite MODIS | Séries temporais de NDVI (250 m) | Fenologia da cultura |
-| Reanálise climática | Temperatura e precipitação diária | Condições agrometeorológicas |
-| Censo agropecuário (IBGE) | Produtividade histórica municipal | Variável-alvo e tendência tecnológica |
+---
 
-**Hipótese central**: A produtividade observada pode ser decomposta em dois componentes:
+## 1. Project Overview
+
+**FenoClima** is a municipal-level agricultural productivity forecasting system that combines three data sources:
+
+| Source | Type | Representation |
+|--------|------|----------------|
+| MODIS satellite | NDVI time series (250 m) | Crop phenology |
+| Climate reanalysis | Daily temperature and precipitation | Agrometeorological conditions |
+| Agricultural census (IBGE) | Historical municipal productivity | Target variable and technology trend |
+
+**Core hypothesis**: Observed productivity can be decomposed into two components:
 
 ```
-produtividade(t) = tendência_tecnológica(t) + desvio_climático(t)
+productivity(t) = technology_trend(t) + climate_deviation(t)
 ```
 
-O modelo aprende apenas o `desvio_climático`, enquanto a `tendência_tecnológica` é extraída via regressão linear histórica por município. Isso torna o modelo agnóstico a ganhos de produtividade de longo prazo e focado nos efeitos interanuais do clima e da fenologia.
+The model learns only the `climate_deviation`, while the `technology_trend` is extracted via historical linear regression per municipality. This makes the model agnostic to long-term productivity gains and focused on inter-annual effects of climate and phenology.
 
 ---
 
-## 2. Estrutura do Repositório
+## 2. Repository Structure
 
 ```
 FenoClima/
-├── big_query-gee.py       # Extração de NDVI no Google Earth Engine / BigQuery
-├── timesat.py             # Detecção de métricas fenológicas (adaptação do TIMESAT)
-├── clima_timesat.py       # Cálculo de indicadores climáticos por fase fenológica
-├── FenoClima.py           # Orquestração de features + treinamento da RNA híbrida
-├── diagram.png            # Diagrama arquitetural da rede neural
-├── terminal-print.txt     # Saída do console ao final do treinamento
-├── resultado-dados-test.csv  # Predições no conjunto de teste (anos não vistos)
-└── README.md              # Descrição resumida do projeto
+├── big_query-gee.py       # NDVI extraction from Google Earth Engine / BigQuery
+├── timesat.py             # Phenological metric detection (TIMESAT adaptation)
+├── clima_timesat.py       # Climate indicator calculation per phenological phase
+├── FenoClima.py           # Feature orchestration + hybrid neural network training
+├── diagram.png            # Neural network architecture diagram
+├── terminal-print.txt     # Console output at end of training
+├── resultado-dados-test.csv  # Predictions on the test set (unseen years)
+└── README.md              # Project summary
 ```
 
 ---
 
-## 3. Pipeline de Processamento
+## 3. Processing Pipeline
 
-O fluxo completo é sequencial em quatro etapas:
+The complete workflow is sequential across four stages:
 
 ```
 [MODIS / GEE]           Stage 1: big_query-gee.py
-      ↓                 Séries temporais de NDVI por município
+      ↓                 NDVI time series per municipality
 [NDVI CSV]
 
       ↓                 Stage 2: timesat.py
-[Fenologia CSV]         Métricas fenológicas por safra
+[Phenology CSV]         Phenological metrics per season
 
       ↓                 Stage 3: clima_timesat.py
-[Fenologia+Clima CSV]   Indicadores climáticos alinhados às fases
+[Phenology+Climate CSV] Climate indicators aligned to phenological phases
 
       ↓                 Stage 4: FenoClima.py
-[Predição CSV]          Treinamento + predição de produtividade
+[Prediction CSV]        Training + productivity prediction
 ```
 
 ---
 
-## 4. Módulo 1 — Extração de NDVI (`big_query-gee.py`)
+## 4. Module 1 — NDVI Extraction (`big_query-gee.py`)
 
-### Objetivo
-Calcular o NDVI médio diário por município brasileiro, aplicando máscara de área plantada com soja (MapBiomas) e máscara de nuvens.
+### Objective
+Compute daily mean NDVI per Brazilian municipality, applying a soybean-planted-area mask (MapBiomas) and a cloud mask.
 
-### Fonte de Dados
-- **Imagens**: MODIS MOD09Q1 (250 m, 8 dias)
-- **Máscara de soja**: MapBiomas (coleção via GEE Asset)
-- **Shapefile municipal**: IBGE BR_Municipios_2024
+### Data Sources
+- **Images**: MODIS MOD09Q1 (250 m, 8-day composites)
+- **Soy mask**: MapBiomas (collection via GEE Asset)
+- **Municipal shapefile**: IBGE BR_Municipios_2024
 
-### Processamento
+### Processing
 
-1. **Filtragem temporal**: seleciona coleção MODIS pelo intervalo `YEAR_START`–`YEAR_END`
-2. **Máscara de nuvens**: bits 10–11, 2 e 8–9 do band `State` do MOD09Q1
-3. **Cálculo do NDVI**: `(NIR - RED) / (NIR + RED)` usando bandas 2 e 1
-4. **Redução espacial por município**: por lote de 1 município (`CHUNK_SIZE = 1`)
-5. **Estatísticas computadas**:
+1. **Temporal filter**: selects the MODIS collection for `YEAR_START`–`YEAR_END`
+2. **Cloud mask**: bits 10–11, 2, and 8–9 of the `State` band of MOD09Q1
+3. **NDVI calculation**: `(NIR - RED) / (NIR + RED)` using bands 2 and 1
+4. **Spatial reduction per municipality**: processed in batches of 1 municipality (`CHUNK_SIZE = 1`)
+5. **Computed statistics**:
    - `ndvi_mean`, `ndvi_stdDev`, `ndvi_p5`, `ndvi_p50`, `ndvi_p95`
    - `area_total_soja`, `area_nuvem_soja`, `pct_cloud_soy`
-6. **Exportação**: CSV para Google Drive (`gee_exports/`)
+6. **Export**: CSV to Google Drive (`gee_exports/`)
 
-### Saída
+### Output
 ```
 D1C | date | ndvi_mean | ndvi_stdDev | ndvi_p5 | ndvi_p50 | ndvi_p95 | area_total_soja_sum | area_nuvem_soja_sum | pct_cloud_soy
 ```
 
 ---
 
-## 5. Módulo 2 — Métricas Fenológicas (`timesat.py`)
+## 5. Module 2 — Phenological Metrics (`timesat.py`)
 
-### Objetivo
-Detectar as fases fenológicas de cada safra a partir da série temporal de NDVI municipal (adaptação do método TIMESAT).
+### Objective
+Detect the phenological phases of each crop season from the municipal NDVI time series (TIMESAT method adaptation).
 
-### Algoritmo Principal
+### Main Algorithm
 
-#### 5.1 Detecção de Picos
-- `scipy.signal.find_peaks` com `distance=16 dias`, `height=0.65`
-- Pixels com `pct_cloud_soy > 70%` são mascarados (NaN)
+#### 5.1 Peak Detection
+- `scipy.signal.find_peaks` with `distance=16 days`, `height=0.65`
+- Pixels with `pct_cloud_soy > 70%` are masked (NaN)
 
-#### 5.2 Ajuste de Curva (`ajustar_curva_safra`)
-Ajuste de função logística dupla a uma janela de ±105 dias em torno do pico:
+#### 5.2 Curve Fitting (`ajustar_curva_safra`)
+Fits a double logistic function to a ±105-day window around the peak:
 
 ```
 f(t) = a / (1 + exp(-b(t-c₁))) + d / (1 + exp(-e(t-c₂))) + f₀
 ```
 
-- Fallback para polinômio quadrático se o ajuste logístico falhar
-- A curva é escalada para coincidir com o valor de pico observado
+- Falls back to a quadratic polynomial if the logistic fit fails
+- The fitted curve is scaled to match the observed peak value
 
-#### 5.3 Suavização (`aplicar_savitzky_golay`)
-- Interpolação cúbica para frequência diária
-- Filtro Savitzky-Golay: `window=33`, `polyorder=1`
+#### 5.3 Smoothing (`aplicar_savitzky_golay`)
+- Cubic interpolation to daily frequency
+- Savitzky-Golay filter: `window=33`, `polyorder=1`
 
-#### 5.4 Extração de Parâmetros Fenológicos (`parametros_safra_curva_df`)
+#### 5.4 Phenological Parameter Extraction (`parametros_safra_curva_df`)
 
-| Parâmetro | Descrição |
-|-----------|-----------|
-| **SOS** | Start of Season — primeiro valor de NDVI > 0 antes do pico |
-| **POS** | Peak of Season — valor máximo de NDVI |
-| **EOS** | End of Season — primeiro valor de NDVI > 0 após o pico |
-| **MOS** | Middle of Season — 80% da amplitude (max−min) |
-| **ROI** | Rate of Increase — inclinação polinomial em 10–80% da amplitude |
-| **ROD** | Rate of Decrease — inclinação polinomial na fase descendente |
-| **LOS** | Length of Season — dias entre SOS e EOS |
-| **AOS** | Amplitude — POS menos NDVI basal |
-| **SIOS** | Integral — área sob a curva (integração trapezoidal) |
+| Parameter | Description |
+|-----------|-------------|
+| **SOS** | Start of Season — first NDVI > 0 value before the peak |
+| **POS** | Peak of Season — maximum NDVI value |
+| **EOS** | End of Season — first NDVI > 0 value after the peak |
+| **MOS** | Middle of Season — 80% of amplitude (max−min) |
+| **ROI** | Rate of Increase — polynomial slope at 10–80% of amplitude |
+| **ROD** | Rate of Decrease — polynomial slope during the declining phase |
+| **LOS** | Length of Season — days between SOS and EOS |
+| **AOS** | Amplitude — POS minus basal NDVI |
+| **SIOS** | Integral — area under the curve (trapezoidal integration) |
 
-#### 5.5 Regras de Validação
+#### 5.5 Validation Rules
 
-| Código de Erro | Critério de Rejeição |
-|---------------|----------------------|
-| 1 | Pico detectado em junho–setembro (entressafra) |
-| 2 | Plantio (data_ini) em abril–julho |
-| 3 | Colheita (data_fim) em julho–novembro |
-| 4–8 | Ciclo fora do intervalo 90–240 dias |
+| Error Code | Rejection Criterion |
+|-----------|---------------------|
+| 1 | Peak detected in June–September (off-season) |
+| 2 | Planting (`data_ini`) in April–July |
+| 3 | Harvest (`data_fim`) in July–November |
+| 4–8 | Cycle outside the 90–240-day range |
 
-### Saída
-CSV por município com colunas fenológicas por safra detectada.
-
----
-
-## 6. Módulo 3 — Indicadores Climáticos (`clima_timesat.py`)
-
-### Objetivo
-Calcular variáveis agrometeorológicas **alinhadas às fases fenológicas** de cada safra/município, em vez de usar janelas de calendário fixas.
-
-### Dados de Entrada
-- **Temperatura**: TMED, TMAX, TMIN (formato `.zarr`)
-- **Precipitação**: PREC (formato `.zarr`)
-- **Normais climatológicas**: NetCDF (`tmed/tmax/tmin/prec_climatology.nc`)
-- **Produtividade histórica**: pickle (`safras_municipios_2000-2024.pkl`) — fonte IBGE
-- **Fenologia**: saída do `timesat.py`
-
-### Indicadores Calculados
-
-#### Graus-Dia de Crescimento (GDD)
-```
-TB = 38°C  (temperatura base superior)
-Tb =  9°C  (temperatura base inferior)
-```
-Calcula 6 casos possíveis de sobreposição do intervalo [Tmin, Tmax] com [Tb, TB], seguindo o método de integração trapezoidal triangular.
-
-#### Anomalia Climática
-```
-anomalia(t) = valor_observado(t) - normal_climatológica(DOY_t)
-```
-O DOY (dia do ano) é calculado sem o dia 29/fev para consistência interanual.
-
-#### Índice de Precipitação Padronizado (SPI)
-```
-SPI = (prec_acumulada_safra - média_histórica) / desvio_padrão_histórico
-```
-Calculado sobre o ciclo completo da safra.
-
-#### Indicadores por Fase
-
-| Fase | Período | Variáveis |
-|------|---------|-----------|
-| Plantio | `data_ini` → `MOS_DT1` | `prec_plantio`, `gdd`, temperatura |
-| Reprodutivo | `MOS_DT1` → `MOS_DT2` | `prec_safra`, `tmax_mean`, `tmed_mean` |
-| Colheita | `MOS_DT2` → `data_fim` | `prec_colheita`, anomalias de temperatura |
-| Ciclo completo | `data_ini` → `data_fim` | SPI, GDD total, anomalias agregadas |
-
-### Saída por Município
-
-```
-Térmicas: gdd | tmin_min | tmin_mean | tmin_anom | tmed_mean | tmed_std | tmed_anom | tmax_mean | tmax_max | tmax_anom
-Hídricas:  prec_safra | prec_anom_safra | spi | prec_plantio | anom_prec_plantio | prec_colheita | anom_prec_colheita
-```
+### Output
+CSV per municipality with phenological columns per detected crop season.
 
 ---
 
-## 7. Módulo 4 — Rede Neural Híbrida (`FenoClima.py`)
+## 6. Module 3 — Climate Indicators (`clima_timesat.py`)
 
-### 7.1 Carregamento e Filtragem dos Dados
+### Objective
+Calculate agrometeorological variables **aligned to the phenological phases** of each season/municipality, rather than using fixed calendar windows.
 
-1. Carrega CSVs de `/home/admin2/datain/complete_timesat/`
-2. Faz merge com coordenadas municipais (`BR_Municipios_2024.zip`)
-3. Converte datas fenológicas para DOY (dia do ano)
-4. Calcula `MOSL` = dias entre `MOS_DT1` e `MOS_DT2`
+### Input Data
+- **Temperature**: TMED, TMAX, TMIN (`.zarr` format)
+- **Precipitation**: PREC (`.zarr` format)
+- **Climatological normals**: NetCDF (`tmed/tmax/tmin/prec_climatology.nc`)
+- **Historical productivity**: pickle (`safras_municipios_2000-2024.pkl`) — IBGE source
+- **Phenology**: output from `timesat.py`
 
-**Filtros aplicados**:
-- Remove entradas duplicadas `(cod, ano)`, mantendo menor `data_max`
-- Remove municípios com <5 registros históricos (até 2022)
-- Retém apenas registros com `ERROR == 0`
+### Calculated Indicators
+
+#### Growing Degree Days (GDD)
+```
+TB = 38°C  (upper base temperature)
+Tb =  9°C  (lower base temperature)
+```
+Handles 6 possible overlapping cases between [Tmin, Tmax] and [Tb, TB] using the trapezoidal triangular integration method.
+
+#### Climate Anomaly
+```
+anomaly(t) = observed_value(t) - climatological_normal(DOY_t)
+```
+DOY (day of year) is computed without Feb 29 for inter-annual consistency.
+
+#### Standardised Precipitation Index (SPI)
+```
+SPI = (season_accumulated_prec - historical_mean) / historical_std_dev
+```
+Computed over the full growing season.
+
+#### Phase-Specific Indicators
+
+| Phase | Period | Variables |
+|-------|--------|-----------|
+| Planting | `data_ini` → `MOS_DT1` | `prec_plantio`, `gdd`, temperature |
+| Reproductive | `MOS_DT1` → `MOS_DT2` | `prec_safra`, `tmax_mean`, `tmed_mean` |
+| Harvest | `MOS_DT2` → `data_fim` | `prec_colheita`, temperature anomalies |
+| Full season | `data_ini` → `data_fim` | SPI, total GDD, aggregated anomalies |
+
+### Output per Municipality
+
+```
+Thermal:  gdd | tmin_min | tmin_mean | tmin_anom | tmed_mean | tmed_std | tmed_anom | tmax_mean | tmax_max | tmax_anom
+Hydrologic: prec_safra | prec_anom_safra | spi | prec_plantio | anom_prec_plantio | prec_colheita | anom_prec_colheita
+```
 
 ---
 
-### 7.2 Separação Tecnologia × Clima
+## 7. Module 4 — Hybrid Neural Network (`FenoClima.py`)
 
-#### Tendência Tecnológica (`criar_features_com_tecnologia`)
+### 7.1 Data Loading and Filtering
 
-```
-prod_baseline_tec(mun, ano) = intercepto_mun + slope_mun × ano
-```
+1. Loads CSVs from `/home/admin2/datain/complete_timesat/`
+2. Merges with municipal coordinates (`BR_Municipios_2024.zip`)
+3. Converts phenological dates to DOY (day of year)
+4. Computes `MOSL` = days between `MOS_DT1` and `MOS_DT2`
 
-- Slope negativo por município → substituído pelo slope nacional (tendência não regride)
-- `prod_desvio_tec` = produtividade observada − baseline tecnológico
-
-**Rationale**: descontaminar o sinal climático dos ganhos seculares de produtividade (variedades, manejo, insumos).
+**Filters applied**:
+- Removes duplicate `(cod, ano)` entries, keeping the smallest `data_max`
+- Removes municipalities with < 5 historical records (up to 2022)
+- Retains only records with `ERROR == 0`
 
 ---
 
-### 7.3 Engenharia de Features (`criar_interacoes_estrategicas`)
+### 7.2 Technology × Climate Decomposition
 
-**47 features no total**, organizadas em 3 grupos:
+#### Technology Baseline (`criar_features_com_tecnologia`)
 
-#### Grupo 1 — Climáticas (26 features)
+```
+prod_baseline_tec(mun, year) = intercept_mun + slope_mun × year
+```
 
-| Feature | Fórmula / Descrição |
-|---------|---------------------|
+- Negative municipal slope → replaced by the national slope (technology never regresses)
+- `prod_desvio_tec` = observed productivity − technology baseline
+
+**Rationale**: remove the climate signal from long-term secular productivity gains (varieties, management, inputs).
+
+---
+
+### 7.3 Feature Engineering (`criar_interacoes_estrategicas`)
+
+**47 features total**, organised into 3 groups:
+
+#### Group 1 — Climate (26 features)
+
+| Feature | Formula / Description |
+|---------|----------------------|
 | `FORCA_CALOR_MAX` | `(tmax_anom + tmed_std) × tmax_max` |
 | `STRESS_CALOR_SECA` | `tmax_anom + (−spi)` |
-| `INTERACAO_CALOR_SECA` | ReLU(C) + ReLU(S1+S2) + interação + ReLU(V) |
+| `INTERACAO_CALOR_SECA` | ReLU(C) + ReLU(S1+S2) + interaction + ReLU(V) |
 | `saldo_hidrico` | `prec_safra + spi` |
 | `moisture_relief` | `spi + prec_anom_safra` |
-| `sazonalidade_chuva_*` | precipitação da fase / precipitação total |
-| `seca_extrema` | indicador binário: SPI < −1.5 |
-| `calor_extremo` | indicador binário: tmax_anom > 2.0°C |
-| `geada_risco` | indicador binário: ini_doy ≤ 270 AND tmin_min < 2°C |
-| `log_prec_*` | log1p(precipitação) — reduz assimetria |
+| `sazonalidade_chuva_*` | phase rainfall / total rainfall |
+| `seca_extrema` | binary flag: SPI < −1.5 |
+| `calor_extremo` | binary flag: tmax_anom > 2.0°C |
+| `geada_risco` | binary flag: ini_doy ≤ 270 AND tmin_min < 2°C |
+| `log_prec_*` | log1p(precipitation) — reduces skewness |
 
-#### Grupo 2 — Fenológicas (11 features)
+#### Group 2 — Phenological (11 features)
 
-| Feature | Descrição |
-|---------|-----------|
-| `ROD` | Taxa de declínio da curva NDVI |
-| `MOS_DT1` | DOY do início da fase reprodutiva |
-| `SIOS` | Integral da curva de NDVI (área sob a curva) |
-| `AOS` | Amplitude do sinal NDVI |
-| `vigor_x_ciclo` | `amplitude × duração_ciclo` |
-| `POS` | Valor de pico do NDVI |
-| `POS_relativo` | POS normalizado pela mediana histórica do município |
-| `FENO_POS_MOS` | Diferença POS − MOS |
-| `FENO_POS_MOS_SPI10` | Interação fenologia × SPI acumulado em 10 dias |
-| `distancia_mediana` | Desvio do POS em relação à mediana histórica do município |
+| Feature | Description |
+|---------|-------------|
+| `ROD` | Rate of decline of the NDVI curve |
+| `MOS_DT1` | DOY of the start of the reproductive phase |
+| `SIOS` | NDVI curve integral (area under the curve) |
+| `AOS` | NDVI signal amplitude |
+| `vigor_x_ciclo` | `amplitude × cycle_length` |
+| `POS` | NDVI peak value |
+| `POS_relativo` | POS normalised by the municipality's historical median |
+| `FENO_POS_MOS` | POS − MOS difference |
+| `FENO_POS_MOS_SPI10` | Phenology × SPI 10-day accumulated interaction |
+| `distancia_mediana` | POS deviation from the municipality's historical median |
 
-#### Grupo 3 — Espaço-temporais (10 features)
+#### Group 3 — Spatial / Temporal (10 features)
 
-| Feature | Descrição |
-|---------|-----------|
-| `prod_zonal` | Produtividade média da zona geográfica |
-| `prod_desvio_tec_zonal` | Desvio tecnológico médio da zona |
-| `spi_zonal` | SPI médio dos 5 vizinhos mais próximos |
-| `tmax_anom_zonal` | Anomalia de temperatura máxima da zona |
-| `tendencia_linear_municipio` | Slope da tendência linear histórica |
-| `prod_media_movel_zona` | Média móvel de 3 anos da produtividade da zona |
-| `ano_norm_tendencia` | Ano normalizado [0, 1] |
-| `peso_safra_recente` | Peso temporal para safras mais recentes |
-
----
-
-### 7.4 Zonamento Geográfico (`criar_tendencia_por_zonas`)
-
-**Objetivo**: criar 22 zonas de soja com coerência geográfica e produtiva para embedding na rede.
-
-**Algoritmo**:
-1. **KMeans** em features padronizadas ponderadas:
-   - Coordenadas `(lon, lat)` em km → peso 0.60
-   - `(POS_med, POS_std, POS_slope, prod_med, prod_std, prod_slope)` → peso 0.40
-2. **Refinamento geográfico**:
-   - Itera reatribuindo municípios >100 km do centróide da zona
-   - Equilibra distância geográfica vs. distância no espaço de features
-3. Outputs: rótulo de zona por município + tendência interpolada por zona/ano
+| Feature | Description |
+|---------|-------------|
+| `prod_zonal` | Mean productivity of the geographic zone |
+| `prod_desvio_tec_zonal` | Mean technology deviation of the zone |
+| `spi_zonal` | Mean SPI of the 5 nearest zones |
+| `tmax_anom_zonal` | Mean maximum temperature anomaly of the zone |
+| `tendencia_linear_municipio` | Slope of the historical linear trend |
+| `prod_media_movel_zona` | 3-year rolling mean of zonal productivity |
+| `ano_norm_tendencia` | Normalised year [0, 1] |
+| `peso_safra_recente` | Temporal weight for more recent seasons |
 
 ---
 
-### 7.5 Divisão Treino / Validação / Teste
+### 7.4 Geographic Zoning (`criar_tendencia_por_zonas`)
 
-| Conjunto | Anos | Critério |
-|---------|------|----------|
-| **Teste** | 2005, 2012, 2017, 2023, 2024 | Fixos, jamais vistos pelo modelo |
-| **Treino** | Restantes (80%) | Aleatorizado por município |
-| **Validação** | Restantes (20%) | Aleatorizado por município |
+**Objective**: create 22 soybean zones with geographic and productive coherence for network embedding.
 
-**Pesos de amostra**:
-- Zonas críticas (12 zonas identificadas por KMeans): peso 3.0×
-- Ano 2023 (La Niña severa): peso 2.0×
-- Combinado: produto dos pesos
+**Algorithm**:
+1. **KMeans** on weighted standardised features:
+   - `(lon, lat)` coordinates in km → weight 0.60
+   - `(POS_med, POS_std, POS_slope, prod_med, prod_std, prod_slope)` → weight 0.40
+2. **Geographic refinement**:
+   - Iterates reassigning municipalities > 100 km from the zone centroid
+   - Balances geographic distance vs. feature-space distance
+3. Outputs: zone label per municipality + interpolated zone trend per year
 
 ---
 
-### 7.6 Arquitetura da Rede Neural
+### 7.5 Train / Validation / Test Split
+
+| Set | Years | Criterion |
+|-----|-------|-----------|
+| **Test** | 2005, 2012, 2017, 2023, 2024 | Fixed, never seen by the model |
+| **Train** | Remaining (80%) | Randomised by municipality |
+| **Validation** | Remaining (20%) | Randomised by municipality |
+
+**Sample weights**:
+- Critical zones (12 zones identified by KMeans): weight 3.0×
+- Year 2023 (severe La Niña): weight 2.0×
+- Combined: product of both weights
+
+---
+
+### 7.6 Neural Network Architecture
 
 ```
-Entradas:
-├── inp_num  (47 features climáticas + fenológicas)
-└── inp_zona (1 inteiro — ID da zona)
+Inputs:
+├── inp_num  (47 climate + phenological features)
+└── inp_zona (1 integer — zone ID)
 
 Embedding:
-└── ZoneEmbedding: 22 zonas → vetor 4-dimensional
+└── ZoneEmbedding: 22 zones → 4-dimensional vector
 
-Três ramos paralelos:
-├── Ramo Principal    (512 → 256 → 128)
-│   ├── Atenção de features (softmax sobre 47 inputs)
-│   ├── Blocos residuais + BatchNorm + Swish
-│   └── Squeeze-and-excitation attention
+Three parallel branches:
+├── Main Branch       (512 → 256 → 128)
+│   ├── Feature attention (softmax over 47 inputs)
+│   ├── Residual blocks + BatchNorm + Swish
+│   └── Squeeze-and-Excitation attention
 │
-├── Ramo Climático   (256 → 128)   [primeiras 26 features]
-│   └── Blocos residuais + GELU
+├── Climate Branch    (256 → 128)   [first 26 features]
+│   └── Residual blocks + GELU
 │
-└── Ramo Fenológico  (192 → 96)    [21 features restantes]
+└── Phenology Branch  (192 → 96)    [remaining 21 features]
     └── Gated Linear Units
 
-Fusão (512 → 256 → 128 → 64):
-└── Concatena 3 ramos + embedding de zona
-    └── Blocos residuais adicionais
+Fusion (512 → 256 → 128 → 64):
+└── Concatenates 3 branches + zone embedding
+    └── Additional residual blocks
 
-Cabeça de Saída:
-├── Predição principal:  Dense(32) → Dense(1)
-├── Offset de zona:      embedding → Dense(1)
-└── Saída final = predição_principal + offset_zona
+Output Head:
+├── Main prediction:  Dense(32) → Dense(1)
+├── Zone offset:      embedding → Dense(1)
+└── Final output = main_prediction + zone_offset
 ```
 
-**Função de Perda**:
+**Loss Function**:
 ```
 Loss = QuantileLoss(τ=0.70) + α × MSE,   α = 0.05
 QL   = mean(max(τ·e, (τ−1)·e))
 ```
-O quantil 0.70 direciona o modelo a penalizar mais os erros de subestimação (captura melhor cenários negativos de perda).
+The τ=0.70 quantile penalises under-predictions more, better capturing negative-yield scenarios.
 
-**Otimizador**: AdamW — `lr=2e-4`, `weight_decay=1e-4`, `clipnorm=1.0`
+**Optimiser**: AdamW — `lr=2e-4`, `weight_decay=1e-4`, `clipnorm=1.0`
 
 **Callbacks**:
-- `ModelCheckpoint` — salva melhor MAE de validação
-- `ReduceLROnPlateau` — fator 0.7, paciência 16
-- `EarlyStopping` — paciência 64, `min_delta=0.2`
-- `LearningRateScheduler` — decaimento 0.995 por época (após época 10)
+- `ModelCheckpoint` — saves best validation MAE
+- `ReduceLROnPlateau` — factor 0.7, patience 16
+- `EarlyStopping` — patience 64, `min_delta=0.2`
+- `LearningRateScheduler` — 0.995 decay per epoch (after epoch 10)
 
 ---
 
-### 7.7 Calibração Pós-Treino
+### 7.7 Post-Training Calibration
 
-**Regressão Isotônica** aplicada no conjunto de validação:
-- Garante que predições calibradas respeitam cobertura de quantis observada
-- Etapa monotônica: não inverte a ordem das predições originais
-
----
-
-### 7.8 Avaliação
-
-**Métricas primárias**: MAE, RMSE, R²
-
-**Análises detalhadas**:
-- Erro por zona geográfica, município, ano e categoria de SPI
-- Análise de Pareto (20% dos municípios que causam 80% do erro)
-- Verificação de heteroscedasticidade (RMSE/MAE vs. produtividade)
-- Calibração por decil
-- Análise de drift temporal
+**Isotonic Regression** applied on the validation set:
+- Ensures calibrated predictions respect observed quantile coverage
+- Monotonic step: does not invert the order of original predictions
 
 ---
 
-### 7.9 Saídas Finais
+### 7.8 Evaluation
 
-| Arquivo | Conteúdo |
-|---------|---------|
-| `result-train.final.csv` | Dataset completo com colunas `prod_pred`, `desvio_pred`, `componente_tecnologico`, `componente_climatico` |
-| `resultado-dados-test.csv` | Subconjunto de teste com predições e métricas |
-| TensorBoard logs | Curvas de treinamento (loss, MAE, LR) |
+**Primary metrics**: MAE, RMSE, R²
 
-Para o ano 2025 (se `DF2025` existir): aplica o modelo treinado e combina baseline tecnológico + desvio climático previsto.
+**Detailed analyses**:
+- Error by geographic zone, municipality, year, and SPI category
+- Pareto analysis (20% of municipalities causing 80% of error)
+- Heteroscedasticity check (RMSE/MAE vs. productivity)
+- Calibration by prediction decile
+- Temporal drift analysis
 
 ---
 
-## 8. Diagrama da Metodologia
+### 7.9 Final Outputs
+
+| File | Content |
+|------|---------|
+| `result-train.final.csv` | Full dataset with `prod_pred`, `desvio_pred`, `componente_tecnologico`, `componente_climatico` columns |
+| `resultado-dados-test.csv` | Test subset with predictions and metrics |
+| TensorBoard logs | Training curves (loss, MAE, LR) |
+
+For 2025 (if `DF2025` exists): applies the trained model and combines the technology baseline with the predicted climate deviation.
+
+---
+
+## 8. Methodology Diagram
 
 ```mermaid
 flowchart TD
     %% ==== STAGE 1: GEE ====
-    subgraph S1["🛰️ Stage 1 — Extração de NDVI (big_query-gee.py)"]
-        MODIS["MODIS MOD09Q1\n250m · 8 dias"]
-        MAPB["Máscara MapBiomas\n(área de soja)"]
-        MUNI["Shapefile Municipal\nIBGE 2024"]
-        CLOUD["Máscara de Nuvens\n(bits State band)"]
+    subgraph S1["Stage 1 — NDVI Extraction (big_query-gee.py)"]
+        MODIS["MODIS MOD09Q1\n250m · 8 days"]
+        MAPB["MapBiomas Mask\n(soy-planted area)"]
+        MUNI["Municipal Shapefile\nIBGE 2024"]
+        CLOUD["Cloud Mask\n(State band bits)"]
 
-        NDVI_CALC["Cálculo NDVI\n(NIR−RED)/(NIR+RED)"]
-        AGG["Redução Espacial\npor Município"]
-        GEE_OUT["CSV por Município\nndvi_p50 · pct_cloud_soy\n+ estatísticas"]
+        NDVI_CALC["NDVI Calculation\n(NIR−RED)/(NIR+RED)"]
+        AGG["Spatial Reduction\nper Municipality"]
+        GEE_OUT["CSV per Municipality\nndvi_p50 · pct_cloud_soy\n+ statistics"]
 
         MODIS --> NDVI_CALC
         CLOUD --> NDVI_CALC
@@ -424,28 +424,28 @@ flowchart TD
     end
 
     %% ==== STAGE 2: TIMESAT ====
-    subgraph S2["🌱 Stage 2 — Fenologia (timesat.py)"]
-        SG["Suavização\nSavitzky-Golay"]
-        PEAKS["Detecção de Picos\nfind_peaks (dist=16d, h=0.65)"]
-        DLOG["Ajuste Logística Dupla\na/(1+e^-b(t-c1)) + ..."]
-        PHENO["Parâmetros Fenológicos\nSOS · POS · EOS · MOS\nROI · ROD · LOS · AOS · SIOS"]
-        VAL["Validação\n(rejeita off-season,\nciclos < 90 ou > 240d)"]
-        FENO_OUT["CSV Fenológico\npor Município × Safra"]
+    subgraph S2["Stage 2 — Phenology (timesat.py)"]
+        SG["Smoothing\nSavitzky-Golay"]
+        PEAKS["Peak Detection\nfind_peaks (dist=16d, h=0.65)"]
+        DLOG["Double Logistic Fit\na/(1+e^-b(t-c1)) + ..."]
+        PHENO["Phenological Parameters\nSOS · POS · EOS · MOS\nROI · ROD · LOS · AOS · SIOS"]
+        VAL["Validation\n(rejects off-season,\ncycles < 90 or > 240d)"]
+        FENO_OUT["Phenology CSV\nper Municipality × Season"]
 
         GEE_OUT --> SG --> PEAKS --> DLOG --> PHENO --> VAL --> FENO_OUT
     end
 
-    %% ==== STAGE 3: CLIMA ====
-    subgraph S3["🌡️ Stage 3 — Clima (clima_timesat.py)"]
-        ZARR["Dados Climáticos\nTMED · TMAX · TMIN · PREC\n(formato .zarr)"]
-        NC["Normais Climatológicas\n(NetCDF por DOY)"]
-        IBGE["Produtividade Histórica\nIBGE (pickle)"]
+    %% ==== STAGE 3: CLIMATE ====
+    subgraph S3["Stage 3 — Climate (clima_timesat.py)"]
+        ZARR["Climate Data\nTMED · TMAX · TMIN · PREC\n(.zarr format)"]
+        NC["Climatological Normals\n(NetCDF by DOY)"]
+        IBGE["Historical Productivity\nIBGE (pickle)"]
 
-        GDD["Graus-Dia (GDD)\nTb=9°C · TB=38°C"]
-        ANOM["Anomalias Climáticas\nobs − climatologia(DOY)"]
-        SPI["SPI\n(prec_safra − média) / DP"]
-        PHASES["Indicadores por Fase\nPlantio · MOS · Colheita"]
-        CLIM_OUT["CSV Fenologia+Clima\npor Município × Safra"]
+        GDD["Growing Degree Days\nTb=9°C · TB=38°C"]
+        ANOM["Climate Anomalies\nobs − climatology(DOY)"]
+        SPI["SPI\n(prec_season − mean) / SD"]
+        PHASES["Phase-Specific Indicators\nPlanting · MOS · Harvest"]
+        CLIM_OUT["Phenology+Climate CSV\nper Municipality × Season"]
 
         FENO_OUT --> PHASES
         ZARR --> GDD & ANOM & SPI
@@ -455,42 +455,42 @@ flowchart TD
     end
 
     %% ==== STAGE 4: FenoClima ====
-    subgraph S4["🧠 Stage 4 — Rede Neural Híbrida (FenoClima.py)"]
+    subgraph S4["Stage 4 — Hybrid Neural Network (FenoClima.py)"]
 
-        subgraph PREP["Pré-processamento"]
-            LOAD["Carga e Filtragem\n(ERROR=0, ≥5 registros)"]
-            TEC["Separação Tecnologia × Clima\nprod = baseline_tec + desvio_tec"]
-            FEAT["Engenharia de Features\n47 variáveis"]
-            ZONE["Zonamento Geográfico\nKMeans (22 zonas)\ngeo + fenologia + produtividade"]
-            WIN["Winsorização + arcsinh\n(alvo: desvio_tec)"]
+        subgraph PREP["Pre-processing"]
+            LOAD["Load and Filter\n(ERROR=0, >= 5 records)"]
+            TEC["Technology × Climate Split\nprod = baseline_tec + deviation_tec"]
+            FEAT["Feature Engineering\n47 variables"]
+            ZONE["Geographic Zoning\nKMeans (22 zones)\ngeo + phenology + productivity"]
+            WIN["Winsorisation + arcsinh\n(target: deviation_tec)"]
         end
 
-        subgraph SPLIT["Divisão dos Dados"]
-            TEST["Teste\n2005·2012·2017·2023·2024"]
-            TRAIN["Treino (80%)\nanos restantes"]
-            VAL2["Validação (20%)\nanos restantes"]
+        subgraph SPLIT["Data Split"]
+            TEST["Test\n2005·2012·2017·2023·2024"]
+            TRAIN["Train (80%)\nremaining years"]
+            VAL2["Validation (20%)\nremaining years"]
         end
 
-        subgraph RNA["Arquitetura Híbrida"]
-            EMB["Zone Embedding\n22 zonas → 4 dim"]
-            MAIN["Ramo Principal\n512→256→128\nResNet + Squeeze-Excitation"]
-            CLIM_BR["Ramo Climático\n256→128\n(26 features)"]
-            FENO_BR["Ramo Fenológico\n192→96\nGated Linear Units"]
-            FUSE["Fusão\n512→256→128→64\nResNet"]
-            HEAD["Cabeça de Saída\npred_principal + offset_zona"]
+        subgraph RNA["Hybrid Architecture"]
+            EMB["Zone Embedding\n22 zones → 4 dim"]
+            MAIN["Main Branch\n512→256→128\nResNet + Squeeze-Excitation"]
+            CLIM_BR["Climate Branch\n256→128\n(26 features)"]
+            FENO_BR["Phenology Branch\n192→96\nGated Linear Units"]
+            FUSE["Fusion\n512→256→128→64\nResNet"]
+            HEAD["Output Head\nmain_pred + zone_offset"]
         end
 
-        subgraph LOSS["Treinamento"]
-            QL["Quantile Loss τ=0.70\n+ α·MSE  (α=0.05)"]
+        subgraph LOSS["Training"]
+            QL["Quantile Loss tau=0.70\n+ alpha·MSE  (alpha=0.05)"]
             OPT["AdamW\nlr=2e-4 · decay=0.995"]
             CB["Callbacks\nEarlyStop · ReduceLR\nCheckpoint · TensorBoard"]
         end
 
-        subgraph POST["Pós-processamento"]
-            ISO["Calibração Isotônica\n(conjunto de validação)"]
-            REC["Reconstrução\npred = baseline_tec + desvio_pred"]
-            EVAL["Avaliação\nMAE · RMSE · R²\nPor zona · ano · SPI"]
-            PRED25["Previsão 2025\n(se dados disponíveis)"]
+        subgraph POST["Post-processing"]
+            ISO["Isotonic Calibration\n(validation set)"]
+            REC["Reconstruction\npred = baseline_tec + deviation_pred"]
+            EVAL["Evaluation\nMAE · RMSE · R²\nBy zone · year · SPI"]
+            PRED25["2025 Forecast\n(if data available)"]
         end
 
         CLIM_OUT --> LOAD --> TEC --> FEAT --> ZONE --> WIN
@@ -509,10 +509,10 @@ flowchart TD
     end
 
     %% ==== OUTPUTS ====
-    subgraph OUT["📊 Saídas"]
-        CSV_TEST["resultado-dados-test.csv\n(métricas por município/ano)"]
-        CSV_FULL["result-train.final.csv\n(dataset completo + predições)"]
-        DASH["Dashboard / Relatório\npor zona · SPI · fenologia"]
+    subgraph OUT["Outputs"]
+        CSV_TEST["resultado-dados-test.csv\n(metrics per municipality/year)"]
+        CSV_FULL["result-train.final.csv\n(full dataset + predictions)"]
+        DASH["Report\nby zone · SPI · phenology"]
     end
 
     EVAL --> CSV_TEST & DASH
@@ -529,53 +529,53 @@ flowchart TD
 
 ---
 
-## 9. Formatos de Entrada e Saída
+## 9. Input and Output Formats
 
-### Arquivos de Entrada
+### Input Files
 
-| Arquivo | Formato | Origem | Módulo |
-|---------|---------|--------|--------|
-| Coleção MODIS MOD09Q1 | GEE Asset | NASA/GEE | `big_query-gee.py` |
-| Máscara MapBiomas soja | GEE Asset | MapBiomas | `big_query-gee.py` |
-| Shapefile municipal | ZIP (Shapefile) | IBGE 2024 | `big_query-gee.py` |
-| Séries NDVI por município | CSV | Stage 1 | `timesat.py` |
-| Temperatura/Precipitação | `.zarr` | Reanálise | `clima_timesat.py` |
-| Normais climatológicas | NetCDF | Pré-computado | `clima_timesat.py` |
-| Produtividade histórica | pickle | IBGE SIDRA | `clima_timesat.py` |
-| Fenologia + Clima merged | CSV | Stage 2+3 | `FenoClima.py` |
+| File | Format | Source | Module |
+|------|--------|--------|--------|
+| MODIS MOD09Q1 collection | GEE Asset | NASA/GEE | `big_query-gee.py` |
+| MapBiomas soy mask | GEE Asset | MapBiomas | `big_query-gee.py` |
+| Municipal shapefile | ZIP (Shapefile) | IBGE 2024 | `big_query-gee.py` |
+| NDVI time series per municipality | CSV | Stage 1 | `timesat.py` |
+| Temperature / Precipitation | `.zarr` | Reanalysis | `clima_timesat.py` |
+| Climatological normals | NetCDF | Pre-computed | `clima_timesat.py` |
+| Historical productivity | pickle | IBGE SIDRA | `clima_timesat.py` |
+| Phenology + Climate merged | CSV | Stage 2+3 | `FenoClima.py` |
 
-### Arquivos de Saída
+### Output Files
 
-| Arquivo | Conteúdo | Gerado por |
-|---------|---------|-----------|
-| `timesat/{municipio}.csv` | Parâmetros fenológicos por safra | `timesat.py` |
-| `complete/{municipio}.csv` | Fenologia + clima mesclados | `clima_timesat.py` |
-| `resultado-dados-test.csv` | Predições + métricas (conjunto teste) | `FenoClima.py` |
-| `result-train.final.csv` | Dataset completo + predições + 2025 | `FenoClima.py` |
+| File | Content | Generated by |
+|------|---------|-------------|
+| `timesat/{municipality}.csv` | Phenological parameters per season | `timesat.py` |
+| `complete/{municipality}.csv` | Merged phenology + climate | `clima_timesat.py` |
+| `resultado-dados-test.csv` | Predictions + metrics (test set) | `FenoClima.py` |
+| `result-train.final.csv` | Full dataset + predictions + 2025 | `FenoClima.py` |
 
 ---
 
-## 10. Parâmetros e Configurações
+## 10. Parameters and Configuration
 
 ### `big_query-gee.py`
 ```python
 YEAR_START, YEAR_END = 2025, 2025
-CHUNK_SIZE = 1              # municípios por lote de exportação
+CHUNK_SIZE = 1              # municipalities per export batch
 ```
 
 ### `timesat.py`
 ```python
-DIST_PICO     = 16          # distância mínima entre picos (dias)
-ALTURA_PICO   = 0.65        # NDVI mínimo para pico válido
-CLOUD_THRESH  = 70.0        # % nuvem para mascarar pixel
-JANELA_CURVA  = 105         # janela ±dias em torno do pico
-WINDOW_SG     = 33          # janela do filtro Savitzky-Golay
+DIST_PICO     = 16          # minimum distance between peaks (days)
+ALTURA_PICO   = 0.65        # minimum NDVI for a valid peak
+CLOUD_THRESH  = 70.0        # cloud % threshold for masking
+JANELA_CURVA  = 105         # ±day window around the peak
+WINDOW_SG     = 33          # Savitzky-Golay window length
 ```
 
 ### `clima_timesat.py`
 ```python
-TB = 38.0                   # temperatura base superior (°C)
-Tb =  9.0                   # temperatura base inferior (°C)
+TB = 38.0                   # upper base temperature (°C)
+Tb =  9.0                   # lower base temperature (°C)
 ```
 
 ### `FenoClima.py`
@@ -587,33 +587,33 @@ ANOS_TESTE      = {2005, 2012, 2017, 2023, 2024}
 n_zones         = 22
 R_MAX_KM        = 100.0
 n_zonas_criticas = 12
-CLIMATE_K       = 26        # split climáticas vs. fenológicas
+CLIMATE_K       = 26        # split index between climate and phenology features
 epochs          = 1024
 batch_size      = 32
 
-# Limiares climáticos
-TH_PLANTIO_MM   = 40.0      # mm mínimos para estabelecimento
-CALOR_EXTREMO   = 2.0       # anomalia de Tmax (°C) para evento extremo
-SPI_SECA_EXT    = -1.5      # SPI de seca extrema
-PRECOCE_DIAS    = 95        # ciclo curto (precoce)
-JANELA_PRE_COL  = 15        # janela pré-colheita (dias)
+# Climate thresholds
+TH_PLANTIO_MM   = 40.0      # minimum mm for crop establishment
+CALOR_EXTREMO   = 2.0       # Tmax anomaly (°C) for extreme heat event
+SPI_SECA_EXT    = -1.5      # extreme drought SPI
+PRECOCE_DIAS    = 95        # short cycle (early harvest)
+JANELA_PRE_COL  = 15        # pre-harvest heat-sensitive window (days)
 ```
 
 ---
 
-## 11. Limitações Conhecidas
+## 11. Known Limitations
 
-| Limitação | Descrição |
-|-----------|-----------|
-| **Maturidade** | Metodologia "GO HORSE" — código em desenvolvimento, não operacional |
-| **Balanço hídrico** | Usa SPI como proxy; não implementa modelo hidrológico completo |
-| **Tendência tecnológica** | Assume crescimento linear por município |
-| **Zonas estáticas** | Zonas geográficas fixadas no treinamento |
-| **Cobertura de nuvens** | Mascara apenas >70%; não interpola pixels problemáticos |
-| **Caminhos fixos** | Diretórios hardcoded para o ambiente de desenvolvimento |
-| **Janela temporal** | Dados esparsos para 2023–2025 (anos mais recentes) |
-| **Soja apenas** | Pipeline construído especificamente para soja; não generalizável sem adaptações |
+| Limitation | Description |
+|-----------|-------------|
+| **Maturity** | GO HORSE methodology — research-stage code, not operational |
+| **Water balance** | Uses SPI as a proxy; no full hydrological model implemented |
+| **Technology trend** | Assumes linear growth per municipality |
+| **Static zones** | Geographic zones fixed at training time |
+| **Cloud coverage** | Only masks > 70%; does not interpolate problematic pixels |
+| **Hardcoded paths** | Directories hardcoded to the development environment |
+| **Temporal coverage** | Sparse data for 2023–2025 (most recent years) |
+| **Soybean only** | Pipeline built specifically for soy; not generalisable without adaptation |
 
 ---
 
-*Documentação gerada automaticamente com base na análise do código-fonte — FenoClima v0.x (playground/research).*
+*Documentation generated from source-code analysis — FenoClima v0.x (playground/research).*
