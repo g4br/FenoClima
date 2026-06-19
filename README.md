@@ -266,18 +266,38 @@ prod_baseline_tec(mun, year) = intercept_mun + slope_mun × year
 
 #### Group 1 — Climate (26 features)
 
-| Feature | Formula / Description |
-|---------|----------------------|
-| `FORCA_CALOR_MAX` | `(tmax_anom + tmed_std) × tmax_max` |
-| `STRESS_CALOR_SECA` | `tmax_anom + (−spi)` |
-| `INTERACAO_CALOR_SECA` | ReLU(C) + ReLU(S1+S2) + interaction + ReLU(V) |
-| `saldo_hidrico` | `prec_safra + spi` |
-| `moisture_relief` | `spi + prec_anom_safra` |
-| `sazonalidade_chuva_*` | phase rainfall / total rainfall |
-| `seca_extrema` | binary flag: SPI < −1.5 |
-| `calor_extremo` | binary flag: tmax_anom > 2.0°C |
-| `geada_risco` | binary flag: ini_doy ≤ 270 AND tmin_min < 2°C |
-| `log_prec_*` | log1p(precipitation) — reduces skewness |
+These are the first 26 entries of `FEATURES_TENDENCIAS`, in the exact order the Climate branch slices them (`x[:, :26]`). Notation: `z(·)` = season-wise z-score, `ReLU(x)=max(x,0)`, `dur_rep` = reproductive-phase length (`MOS_DT2`), `dur_ciclo` = cycle length (`LOS`), `amp` = canopy amplitude (`AOS`, falling back to `MOS`).
+
+| # | Feature | Formula / Description |
+|---|---------|----------------------|
+| 1 | `FORCA_CALOR_MAX` | `(tmax_anom + tmed_std) × tmax_max` — peak-heat forcing |
+| 2 | `INTERACAO_CALOR_SECA` | `C + (S1+S2) + C·(S1+S2) + V`, with `C=ReLU(z(tmax_anom))`, `S1=ReLU(z(−prec_anom_safra))`, `S2=ReLU(z(−spi))`, `V=ReLU(z(tmed_std))` — combined heat×drought interaction |
+| 3 | `tmed_std` | std. dev. of daily mean temperature over the season *(climate input)* |
+| 4 | `calor_antes_colheita` | `ReLU(tmax_anom) × min(dur_rep, 15)` — heat in the 15-day pre-harvest window |
+| 5 | `stress_floracao` | `ReLU(tmax_anom) × (−min(spi, 0))` — flowering heat+drought stress |
+| 6 | `estresse_termico_hidrico` | `ReLU(tmax_anom) × (−min(spi, 0))` — thermal–hydric stress |
+| 7 | `indice_estresse` | alias of `estresse_termico_hidrico` (aggregate stress index) |
+| 8 | `calor_fase_sensivel_aprox` | `ReLU(tmax_anom) × dur_rep` — heat over the sensitive reproductive phase |
+| 9 | `tmax_anom` | maximum-temperature anomaly *(climate input)* |
+| 10 | `estresse_termico_rel` | `ReLU(tmax_anom) / max(tmax_mean − tmin_min, 0.5)` — relative thermal stress |
+| 11 | `amplitude_termica` | `tmax_max − tmin_min` — thermal amplitude |
+| 12 | `gradiente_lat_spi` | `lat × spi` — latitude–drought gradient |
+| 13 | `STRESS_CALOR_SECA` | `tmax_anom + (−spi)` — heat+drought stress |
+| 14 | `stress_plantio` | `max(stress_def, stress_anom)` with `stress_def=clip((40−prec_plantio)/40, 0, 1)` and `stress_anom=clip(−anom_prec_plantio/40, 0, 1)` — establishment water stress |
+| 15 | `seca_extrema` | binary flag: `1` if `spi < −1.5` else `0` |
+| 16 | `prec_anom_safra` | season precipitation anomaly *(climate input)* |
+| 17 | `moisture_relief` | `spi + prec_anom_safra` — moisture relief |
+| 18 | `tmin_min` | season minimum of minimum temperature *(climate input)* |
+| 19 | `spi` | Standardised Precipitation Index *(climate input)* |
+| 20 | `produtividade_termica` | `(gdd / dur_ciclo) × amp` — thermal productivity |
+| 21 | `anom_prec_plantio` | planting-phase precipitation anomaly *(climate input)* |
+| 22 | `prec_plantio` | planting-phase precipitation *(climate input)* |
+| 23 | `log_prec_plantio` | `log1p(prec_plantio)` — reduces skewness |
+| 24 | `saldo_hidrico` | `prec_safra + spi` — water balance proxy |
+| 25 | `prec_safra` | total season precipitation *(climate input)* |
+| 26 | `gradiente_lat_tmax` | `lat × tmax_anom` — latitude–heat gradient |
+
+> **Off-by-one note**: the `# climate` comment block in `FenoClima.py` actually lists **27** names — the 27th, `log_prec_safra` (`log1p(prec_safra)`), sits at index 26. Because `CLIMATE_K = 26` the Climate branch slices `x[:, :26]` (indices 0–25, ending at `gradiente_lat_tmax`) and the Phenology branch starts at `NDVI_START = 27` (`x[:, 27:]`). So `log_prec_safra` falls between the two slices and is consumed **only by the Main branch** (which always sees all 47 features), never by the dedicated Climate branch.
 
 #### Group 2 — Phenological (11 features)
 
